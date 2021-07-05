@@ -393,26 +393,22 @@ namespace BackupManagedDisksWithIncrementalSnapshots
             var credential = GetClientCredential();
 
             Snapshot newSnapshot = new Snapshot();
-            newSnapshot.Location = "eastus2";
             
-
             List<Snapshot> newSnapshotList = new List<Snapshot>();
-            //List<Snapshot> incrementalSnapshots = new List<Snapshot>();
-
+            
             using (var computeClient = new ComputeManagementClient(credential))
             {
                 computeClient.SubscriptionId = subscriptionId;
 
-                //Get the parent disk
+                //Get the parent disk and some required properties for the snapshot.
                 Disk disk = await computeClient.Disks.GetAsync(resourceGroupName, diskName);
+                newSnapshot.Location = disk.Location;
                 newSnapshot.CreationData = disk.CreationData;
                 newSnapshot.DiskSizeGB = disk.DiskSizeGB;
 
                 // Create snapshot
-                //IPage<Snapshot> newSnapshot = 
                 try
                 {
-                    //newSnapshot = computeClient.Snapshots.BeginCreateOrUpdate(resourceGroupName, "PSSD-4GB-ZZZZZ", newSnapshot);
                     newSnapshot = await computeClient.Snapshots.CreateOrUpdateAsync(resourceGroupName, "PSSD-4GB-ZZZZZ",newSnapshot);
                     newSnapshotList.Add(newSnapshot);
                 }
