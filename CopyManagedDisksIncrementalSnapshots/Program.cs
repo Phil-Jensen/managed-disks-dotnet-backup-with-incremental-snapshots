@@ -57,13 +57,13 @@ namespace BackupManagedDisksWithIncrementalSnapshots
         static async Task Main(string[] args)
         {
             //The subscription Id where the incremental snapshots of the managed disk are created
-            string subscriptionId = "yourSubscriptionId";
+            string subscriptionId = "97419042-7be5-4b59-b8d4-f632e735bea1";
 
             //The resource group name where incremental snapshots of the managed disks are created
-            string resourceGroupName = "yourResourceGroupName";
+            string resourceGroupName = "saphanaazacsnaptest";
 
             //The name of the disk that is backed up with incremental snapshots in the source region
-            string diskName = "yourManagedDiskName";
+            string diskName = "pssd-4gb";
 
             //The name of the storage account in the target region where incremental snapshots from source region are copied to a base blob. 
             string targetStorageAccountName = "yourTargetStorageAccountName";
@@ -76,6 +76,30 @@ namespace BackupManagedDisksWithIncrementalSnapshots
 
             //the name of the base VHD (blob) used for storing the backups in the target storage account 
             string targetBaseBlobName = "yourtargetbaseblobname.vhd";
+
+            // Create a FULL snapshot
+            Console.WriteLine($"Creating snapshot of disk {diskName}");
+            List<Snapshot> createdSnapshots = await CreateFullSnapshot(subscriptionId, resourceGroupName, diskName);
+            // List the created FULL snapshots associated
+            Console.WriteLine("List of created snapshots");
+            foreach (Snapshot snapshot in createdSnapshots)
+            {
+                Console.WriteLine($"Snapshot = {snapshot.Name}");
+                //Console.WriteLine($"Removing snapshot = {snapshot.Name}");
+
+            }
+
+            // Get the FULL snapshots associated
+            Console.WriteLine("Getting list of full snapshots");
+            List<Snapshot> fullSnapshots = await GetFullSnapshots(subscriptionId, resourceGroupName, diskName);
+
+            foreach (Snapshot snapshot in fullSnapshots)
+            {
+                Console.WriteLine($"Snapshot = {snapshot.Name}");
+                //Console.WriteLine($"Removing snapshot = {snapshot.Name}");
+                
+            }
+
 
             //Get the incremental snapshots associated 
             //The incremental snapshots are already sorted in the ascending order of the created datetime
@@ -315,6 +339,93 @@ namespace BackupManagedDisksWithIncrementalSnapshots
         }
 
         /// <summary>
+        /// This method returns a list of incremental snapshots created for a managed disk in a resource group
+        /// You can identify incremental snapshots of the same disk by using the SourceResourceId and SourceUniqueId properties of snapshots. 
+        /// SourceResourceId is the Azure Resource Manager (ARM) resource Id of the parent disk. 
+        /// SourceUniqueId is the value inherited from the UniqueId property of the disk. 
+        /// If you delete a disk and then create a disk with the same name, the value of the UniqueId property will change. 
+        /// </summary>
+        /// <param name="subscriptionId">Your subscriptionId</param>
+        /// <param name="resourceGroupName">The name of the resource group where incremental snapshots are created</param>
+        /// <param name="diskName">The name of the parent disk which is backed by the incremental snapshots</param>
+        /// <returns></returns>
+        private static async Task<List<Snapshot>> GetFullSnapshots(string subscriptionId, string resourceGroupName, string diskName)
+        {
+            var credential = GetClientCredential();
+
+
+            List<Snapshot> fullSnapshots = new List<Snapshot>();
+
+            using (var computeClient = new ComputeManagementClient(credential))
+            {
+                computeClient.SubscriptionId = subscriptionId;
+
+                //Get the parent disk
+                Disk disk = await computeClient.Disks.GetAsync(resourceGroupName, diskName);
+
+                //Get all the snapshots in the resource group
+                IPage<Snapshot> snapshots = await computeClient.Snapshots.ListByResourceGroupAsync(resourceGroupName);
+
+                //Loop through each snapshot
+                foreach (var snapshot in snapshots)
+                {
+                    //filter out full snapshots and incremental snapshots that are not created from the disk
+                    if (snapshot.Incremental == false && snapshot.CreationData.SourceResourceId == disk.Id && snapshot.CreationData.SourceUniqueId == disk.UniqueId)
+                    {
+                        fullSnapshots.Add(snapshot);
+                    }
+                }
+            }
+
+            return fullSnapshots.OrderBy(s => s.TimeCreated).ToList();
+
+        }
+
+        /// <summary>
+        /// This method creates snapshots for a managed disk in a resource group
+        /// </summary>
+        /// <param name="subscriptionId">Your subscriptionId</param>
+        /// <param name="resourceGroupName">The name of the resource group where incremental snapshots are created</param>
+        /// <param name="diskName">The name of the parent disk which is backed by the incremental snapshots</param>
+        /// <returns></returns>
+        private static async Task<List<Snapshot>> CreateFullSnapshot(string subscriptionId, string resourceGroupName, string diskName)
+        {
+            var credential = GetClientCredential();
+
+            Snapshot newSnapshot = new Snapshot();
+            newSnapshot.Location = "eastus2";
+            
+
+            List<Snapshot> newSnapshotList = new List<Snapshot>();
+            //List<Snapshot> incrementalSnapshots = new List<Snapshot>();
+
+            using (var computeClient = new ComputeManagementClient(credential))
+            {
+                computeClient.SubscriptionId = subscriptionId;
+
+                //Get the parent disk
+                Disk disk = await computeClient.Disks.GetAsync(resourceGroupName, diskName);
+                newSnapshot.CreationData = disk.CreationData;
+                newSnapshot.DiskSizeGB = disk.DiskSizeGB;
+
+                // Create snapshot
+                //IPage<Snapshot> newSnapshot = 
+                try
+                {
+                    //newSnapshot = computeClient.Snapshots.BeginCreateOrUpdate(resourceGroupName, "PSSD-4GB-ZZZZZ", newSnapshot);
+                    newSnapshot = await computeClient.Snapshots.CreateOrUpdateAsync(resourceGroupName, "PSSD-4GB-ZZZZZ",newSnapshot);
+                    newSnapshotList.Add(newSnapshot);
+                }
+                catch
+                { 
+                    throw;
+                }
+
+            }            
+            return newSnapshotList.OrderBy(s => s.TimeCreated).ToList();
+        }
+
+        /// <summary>
         /// This method generates a credential using the identity of a service principal associated with your subscription.
         /// The generated credential is used by the Azure SDK to authenticate itself and perform operations on your Azure resources in your subscription. 
         /// Use the steps in the article below to create a service principal in your subscription. It will help you to get tenantId, applicationId and secret key for the service principal. 
@@ -324,9 +435,9 @@ namespace BackupManagedDisksWithIncrementalSnapshots
         private static ServiceClientCredentials GetClientCredential()
         {
 
-            string tenantId = "";
-            var applicationId = "";
-            var applicatioSecretKey = "";
+            string tenantId = "72f988bf-86f1-41af-91ab-2d7cd011db47";
+            var applicationId = "c63adce2-48f9-4c2b-926b-454fc36420bd";
+            var applicatioSecretKey = "m5lzdtte0I6MJ2sT6oL740UzOq_IEcC6YY";
 
             var context = new Microsoft.IdentityModel.Clients.ActiveDirectory.AuthenticationContext("https://login.windows.net/" + tenantId);
 
