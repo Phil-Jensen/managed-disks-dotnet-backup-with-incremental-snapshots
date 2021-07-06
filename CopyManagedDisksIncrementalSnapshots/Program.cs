@@ -14,6 +14,7 @@ using System.Linq;
 using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Blobs.Models;
 using Azure;
+using System.Globalization;
 
 
 //----------------------------------------------------------------------------------
@@ -77,15 +78,25 @@ namespace BackupManagedDisksWithIncrementalSnapshots
             //the name of the base VHD (blob) used for storing the backups in the target storage account 
             string targetBaseBlobName = "yourtargetbaseblobname.vhd";
 
+            // use the formatProvider to ensure string output handling is consistent.
+            CultureInfo formatProvider = CultureInfo.InvariantCulture;
+            string prefix = "adhoc";
+            string snapshotName = $"{prefix}__{DateTime.UtcNow.ToString("yyyy-MM-ddTHHmmss-fffffffZ", formatProvider)}";
             // Create a FULL snapshot
             Console.WriteLine($"Creating snapshot of disk {diskName}");
-            List<Snapshot> createdSnapshots = await CreateFullSnapshot(subscriptionId, resourceGroupName, diskName);
+            List<Snapshot> createdSnapshots = await CreateFullSnapshot(subscriptionId, resourceGroupName, diskName, diskName+"."+snapshotName);
             // List the created FULL snapshots associated
             Console.WriteLine("List of created snapshots");
             foreach (Snapshot snapshot in createdSnapshots)
             {
                 Console.WriteLine($"Snapshot = {snapshot.Name}");
-                //Console.WriteLine($"Removing snapshot = {snapshot.Name}");
+                Console.Write($"Shall we delete the snapshot '{snapshot.Name}'?");
+                string response = Console.ReadLine();
+                if (response.Contains("yes"))
+                {
+                    Console.WriteLine($"Removing snapshot = {snapshot.Name}");
+                    await DeleteFullSnapshot(subscriptionId, resourceGroupName, diskName, snapshot.Name);
+                }
 
             }
 
@@ -95,11 +106,11 @@ namespace BackupManagedDisksWithIncrementalSnapshots
 
             foreach (Snapshot snapshot in fullSnapshots)
             {
-                Console.WriteLine($"Snapshot = {snapshot.Name}");
-                //Console.WriteLine($"Removing snapshot = {snapshot.Name}");
-                
+                Console.WriteLine($"Snapshot = {snapshot.Name}");               
             }
 
+            /* 
+             * old code follows
 
             //Get the incremental snapshots associated 
             //The incremental snapshots are already sorted in the ascending order of the created datetime
@@ -132,6 +143,7 @@ namespace BackupManagedDisksWithIncrementalSnapshots
                 //Set the current snapshot as the previous snapshot for the next snapshot
                 previousSnapshotSASUri = currentSnapshotSASURI;
             }
+            */
 
         }
 
@@ -388,7 +400,7 @@ namespace BackupManagedDisksWithIncrementalSnapshots
         /// <param name="resourceGroupName">The name of the resource group where incremental snapshots are created</param>
         /// <param name="diskName">The name of the parent disk which is backed by the incremental snapshots</param>
         /// <returns></returns>
-        private static async Task<List<Snapshot>> CreateFullSnapshot(string subscriptionId, string resourceGroupName, string diskName)
+        private static async Task<List<Snapshot>> CreateFullSnapshot(string subscriptionId, string resourceGroupName, string diskName, string snapshotName)
         {
             var credential = GetClientCredential();
 
@@ -402,14 +414,24 @@ namespace BackupManagedDisksWithIncrementalSnapshots
 
                 //Get the parent disk and some required properties for the snapshot.
                 Disk disk = await computeClient.Disks.GetAsync(resourceGroupName, diskName);
+
+                // Set the snapshot to 'mimic' the source disk for the critical settings.
                 newSnapshot.Location = disk.Location;
                 newSnapshot.CreationData = disk.CreationData;
+                newSnapshot.CreationData.CreateOption = "Copy";
+                newSnapshot.CreationData.SourceResourceId = disk.Id;
                 newSnapshot.DiskSizeGB = disk.DiskSizeGB;
+                newSnapshot.Sku = new SnapshotSku();
+                // can copy the source disks Sku, but might be cheaper to just set as Standard_LRS
+                // but, by copying the source disk Sku, then we know what Sku to apply to the disk created from the snapshot.
+                newSnapshot.Sku.Name = disk.Sku.Name;
+                //newSnapshot.Sku.Name = "Standard_LRS";
 
                 // Create snapshot
                 try
                 {
-                    newSnapshot = await computeClient.Snapshots.CreateOrUpdateAsync(resourceGroupName, "PSSD-4GB-ZZZZZ",newSnapshot);
+                    Console.WriteLine($"Creating snapshot '{snapshotName}' on disk '{diskName}'");
+                    newSnapshot = await computeClient.Snapshots.CreateOrUpdateAsync(resourceGroupName, snapshotName, newSnapshot);
                     newSnapshotList.Add(newSnapshot);
                 }
                 catch
@@ -418,6 +440,47 @@ namespace BackupManagedDisksWithIncrementalSnapshots
                 }
 
             }            
+            return newSnapshotList.OrderBy(s => s.TimeCreated).ToList();
+        }
+
+        /// <summary>
+        /// This method deletes snapshots for a managed disk in a resource group
+        /// </summary>
+        /// <param name="subscriptionId">Your subscriptionId</param>
+        /// <param name="resourceGroupName">The name of the resource group where incremental snapshots are created</param>
+        /// <param name="diskName">The name of the parent disk which is backed by the incremental snapshots</param>
+        /// <returns></returns>
+        private static async Task<List<Snapshot>> DeleteFullSnapshot(string subscriptionId, string resourceGroupName, string diskName, string snapshotName)
+        {
+            var credential = GetClientCredential();
+
+            Snapshot newSnapshot = new Snapshot();
+
+            List<Snapshot> newSnapshotList = new List<Snapshot>();
+
+            using (var computeClient = new ComputeManagementClient(credential))
+            {
+                computeClient.SubscriptionId = subscriptionId;
+
+                //Get the parent disk and some required properties for the snapshot.
+                Disk disk = await computeClient.Disks.GetAsync(resourceGroupName, diskName);
+                //newSnapshot.Location = disk.Location;
+                //newSnapshot.CreationData = disk.CreationData;
+                //newSnapshot.DiskSizeGB = disk.DiskSizeGB;
+
+                // Create snapshot
+                try
+                {
+                    //newSnapshot = await computeClient.Snapshots.CreateOrUpdateAsync(resourceGroupName, snapshotName, newSnapshot);
+                    await computeClient.Snapshots.DeleteAsync(resourceGroupName, snapshotName);
+                    //newSnapshotList.Add(newSnapshot);
+                }
+                catch
+                {
+                    throw;
+                }
+
+            }
             return newSnapshotList.OrderBy(s => s.TimeCreated).ToList();
         }
 
