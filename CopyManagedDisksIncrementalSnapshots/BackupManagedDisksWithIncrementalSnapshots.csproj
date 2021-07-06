@@ -15,9 +15,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="azureauth.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Azure.Storage.Blobs" Version="12.9.1" />
     <PackageReference Include="Microsoft.Azure.ConfigurationManager" Version="4.0.0" />
     <PackageReference Include="Microsoft.Azure.Management.Compute" Version="47.0.0" />
+    <PackageReference Include="Microsoft.Azure.Management.Fluent" Version="1.37.1" />
+    <PackageReference Include="Microsoft.Azure.Management.ResourceManager.Fluent" Version="1.37.1" />
     <PackageReference Include="Microsoft.IdentityModel.Clients.ActiveDirectory" Version="5.2.9" />
   </ItemGroup>
 
